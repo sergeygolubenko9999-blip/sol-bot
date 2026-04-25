@@ -1,16 +1,25 @@
-import hmac
-import hashlib
 import os
-import asyncio
+import requests
 from flask import Flask, request, jsonify
-from telegram import Bot
 
 # ---------------- CONFIG ----------------
 TOKEN = os.environ.get("TG_TOKEN", "")
 CHAT_ID = os.environ.get("CHAT_ID", "600440574")
 
 app = Flask(__name__)
-bot = Bot(token=TOKEN)
+
+# ---------------- SEND TELEGRAM ----------------
+def send_telegram(text):
+    url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": text
+    }
+    try:
+        r = requests.post(url, json=payload, timeout=10)
+        print("Telegram response:", r.status_code, r.text)
+    except Exception as e:
+        print("Telegram error:", e)
 
 # ---------------- PARSER ----------------
 def parse_helius_tx(tx):
@@ -41,7 +50,6 @@ def parse_helius_tx(tx):
                     "amount": amount,
                     "sol": sol_spent,
                     "sig": sig,
-                    "from": from_addr,
                 })
         return results
     except Exception as e:
@@ -49,15 +57,15 @@ def parse_helius_tx(tx):
         return []
 
 def format_message(parsed, sig):
-    direction = "📈 BUY" if parsed.get("sol", 0) > 0 else "📤 TRANSFER"
-    msg = f"🔥 *ТРАНЗАКЦІЯ ВИЯВЛЕНА*\n\n"
+    direction = "BUY" if parsed.get("sol", 0) > 0 else "TRANSFER"
+    msg = "ТРАНЗАКЦІЯ ВИЯВЛЕНА\n\n"
     msg += f"Тип: {direction}\n"
     msg += f"Джерело: {parsed.get('source', 'unknown')}\n"
-    msg += f"Token: `{parsed.get('mint', 'unknown')}`\n"
+    msg += f"Token: {parsed.get('mint', 'unknown')}\n"
     msg += f"Кількість: {parsed.get('amount', 0)}\n"
     if parsed.get("sol"):
         msg += f"SOL витрачено: {parsed['sol']:.4f}\n"
-    msg += f"\n[Дивитись на Solscan](https://solscan.io/tx/{sig})"
+    msg += f"\nhttps://solscan.io/tx/{sig}"
     return msg
 
 # ---------------- WEBHOOK ----------------
@@ -76,13 +84,9 @@ def webhook():
         if parsed_list:
             for parsed in parsed_list:
                 msg = format_message(parsed, sig)
-                asyncio.run(bot.send_message(chat_id=CHAT_ID, text=msg, parse_mode="Markdown"))
+                send_telegram(msg)
         else:
-            asyncio.run(bot.send_message(
-                chat_id=CHAT_ID,
-                text=f"⚡ Нова транзакція:\n[{sig[:20]}...](https://solscan.io/tx/{sig})",
-                parse_mode="Markdown"
-            ))
+            send_telegram(f"Нова транзакція:\nhttps://solscan.io/tx/{sig}")
 
     return jsonify({"ok": True})
 
@@ -93,5 +97,5 @@ def health():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 8080))
-    print(f"🟢 Bot running on port {port}")
+    print(f"Bot running on port {port}")
     app.run(host="0.0.0.0", port=port)
